@@ -44,9 +44,15 @@ document.addEventListener('DOMContentLoaded', () => {
         resetEmail: document.getElementById('reset-email')
     };
     const navBtns = document.querySelectorAll('.nav-btn');
+    const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
+    const navigationBtns = document.querySelectorAll('.nav-btn, .mobile-nav-btn');
     const viewPanels = document.querySelectorAll('.view-panel');
     const currentUserEmail = document.getElementById('current-user-email');
     const tableBody = document.getElementById('table-body');
+    const mobileSidebar = document.getElementById('mobile-sidebar');
+    const mobileSidebarOverlay = document.getElementById('mobile-sidebar-overlay');
+    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+    const mobileQuickInvoice = document.getElementById('mobile-quick-invoice');
 
     const ui = {
         patientName: document.getElementById('patient-name'),
@@ -578,8 +584,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function bindNavigation() {
-        navBtns.forEach(btn => btn.addEventListener('click', () => activateView(btn.dataset.target)));
+        navigationBtns.forEach(btn => btn.addEventListener('click', () => {
+            activateView(btn.dataset.target);
+            closeMobileNavigation();
+        }));
         document.getElementById('new-invoice-from-list')?.addEventListener('click', () => { resetBillingForm(); activateView('view-billing'); });
+        mobileMenuToggle?.addEventListener('click', toggleMobileNavigation);
+        mobileSidebarOverlay?.addEventListener('click', closeMobileNavigation);
+        mobileQuickInvoice?.addEventListener('click', () => {
+            resetBillingForm();
+            activateView('view-billing');
+            closeMobileNavigation();
+        });
+        window.addEventListener('resize', () => {
+            if (!isMobileViewport()) closeMobileNavigation();
+        });
     }
 
     function bindBilling() {
@@ -1702,6 +1721,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appDataLoadPromise = null;
         activeInvoiceViewId = null;
         editingInvoiceId = null;
+        closeMobileNavigation();
         applyBusinessState({});
         renderAppState();
         resetBillingForm();
@@ -1736,8 +1756,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const nextTarget = panelExists ? target : 'view-dashboard';
         viewPanels.forEach(panel => panel.classList.toggle('active', panel.id === nextTarget));
         navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.target === nextTarget));
+        mobileNavBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.target === nextTarget));
         if (persist) localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, nextTarget);
         if (nextTarget === 'view-reports') renderReports();
+        closeMobileNavigation();
+    }
+
+    function isMobileViewport() {
+        return window.innerWidth <= 960;
+    }
+
+    function openMobileNavigation() {
+        if (!isMobileViewport()) return;
+        mobileSidebar?.classList.add('is-open');
+        mobileSidebarOverlay?.classList.add('active');
+        mobileMenuToggle?.setAttribute('aria-expanded', 'true');
+        document.body.classList.add('mobile-nav-open');
+    }
+
+    function closeMobileNavigation() {
+        mobileSidebar?.classList.remove('is-open');
+        mobileSidebarOverlay?.classList.remove('active');
+        mobileMenuToggle?.setAttribute('aria-expanded', 'false');
+        document.body.classList.remove('mobile-nav-open');
+    }
+
+    function toggleMobileNavigation() {
+        if (mobileSidebar?.classList.contains('is-open')) closeMobileNavigation();
+        else openMobileNavigation();
     }
 
     function syncPrintHeader() {
