@@ -1,0 +1,51 @@
+{
+  "name": "PharmaBill Pro",
+  "short_name": "PharmaBill",
+  "description": "Pharmacy billing, inventory, invoicing, and reports in one installable app.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "categories": [
+    "business",
+    "productivity",
+    "medical",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/app-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Invoice",
+      "short_name": "Invoice",
+      "description": "Open the invoice workspace",
+      "url": "./?view=view-billing"
+    },
+    {
+      "name": "Reports",
+      "short_name": "Reports",
+      "description": "Open sales reports",
+      "url": "./?view=view-reports"
+    },
+    {
+      "name": "Inventory",
+      "short_name": "Inventory",
+      "description": "Open inventory management",
+      "url": "./?view=view-inventory"
+    }
+  ]
+}

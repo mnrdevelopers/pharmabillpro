@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PharmaBill Pro Offline</title>
+  <meta name="theme-color" content="#0f766e">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #0f766e;
+      --line: rgba(15, 23, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(234, 88, 12, 0.06), transparent 28%),
+        var(--bg);
+      color: var(--text);
+    }
+
+    .offline-card {
+      width: min(520px, 100%);
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 2rem;
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: 2rem;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      padding: 0.45rem 0.8rem;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.1);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    .actions {
+      margin-top: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .secondary {
+      background: #e2e8f0;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-card">
+    <div class="badge">Offline Mode</div>
+    <h1>PharmaBill Pro is temporarily offline</h1>
+    <p>The app shell is installed, but this page needs a connection or a previously cached session to continue. Reconnect to sync login, cloud features, and fresh data.</p>
+    <div class="actions">
+      <button class="primary" onclick="location.href='./index.html'">Try Again</button>
+      <button class="secondary" onclick="location.reload()">Reload</button>
+    </div>
+  </div>
+</body>
+</html>
