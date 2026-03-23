@@ -1,5 +1,5 @@
-const APP_CACHE = "pharmabill-app-v1.1";
-const RUNTIME_CACHE = "pharmabill-runtime-v1";
+const APP_CACHE = "pharmabill-app-v1.2";
+const RUNTIME_CACHE = "pharmabill-runtime-v1.2";
 const APP_SHELL = [
   "./",
   "./index.html",
