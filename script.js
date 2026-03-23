@@ -21,6 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let confirmHandler = null;
     let appDataLoaded = false;
     let appDataLoadPromise = null;
+    let activePrintJob = null;
+    let printMediaQueryList = null;
+    let printMediaQueryHandler = null;
 
     const state = {
         stockData: [],
@@ -99,6 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBaseState();
     bindAuth();
     bindNavigation();
+    bindPrintLifecycle();
     bindBilling();
     bindInventory();
     bindInvoices();
@@ -1090,9 +1094,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function printReports() {
-        activateView('view-reports', { persist: false });
-        renderReports();
-        window.print();
+        runPrintJob({
+            mode: 'reports',
+            viewId: 'view-reports',
+            beforePrint: () => renderReports()
+        });
     }
 
     function exportReports() {
@@ -1328,7 +1334,17 @@ document.addEventListener('DOMContentLoaded', () => {
         renderDashboard();
         renderReports();
         showToast(existingIndex >= 0 ? 'Invoice updated.' : 'Invoice saved.', 'success');
-        if (shouldPrint) window.print();
+        if (shouldPrint) {
+            runPrintJob({
+                mode: 'invoice',
+                viewId: 'view-billing',
+                afterPrint: () => {
+                    resetBillingForm();
+                    activateView('view-invoices');
+                }
+            });
+            return;
+        }
         resetBillingForm();
         activateView('view-invoices');
     }
@@ -1521,13 +1537,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function printSavedInvoice(id) {
         const invoice = state.invoiceData.find(item => item.id === id);
         if (!invoice) return showToast('Invoice not found.', 'error');
-        const previousView = document.querySelector('.view-panel.active')?.id || localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY) || 'view-dashboard';
         const billingSnapshot = snapshotBillingForm();
         loadInvoiceIntoBilling(invoice);
-        activateView('view-billing', { persist: false });
-        window.print();
-        restoreBillingSnapshot(billingSnapshot);
-        activateView(previousView, { persist: false });
+        runPrintJob({
+            mode: 'invoice',
+            viewId: 'view-billing',
+            afterPrint: () => restoreBillingSnapshot(billingSnapshot)
+        });
     }
 
     function openInvoicePreview(id) {
@@ -1760,6 +1776,53 @@ document.addEventListener('DOMContentLoaded', () => {
         if (persist) localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, nextTarget);
         if (nextTarget === 'view-reports') renderReports();
         closeMobileNavigation();
+    }
+
+    function bindPrintLifecycle() {
+        window.addEventListener('afterprint', finishPrintJob);
+        if (!window.matchMedia) return;
+        printMediaQueryList = window.matchMedia('print');
+        printMediaQueryHandler = event => {
+            if (!event.matches) finishPrintJob();
+        };
+        if (typeof printMediaQueryList.addEventListener === 'function') {
+            printMediaQueryList.addEventListener('change', printMediaQueryHandler);
+            return;
+        }
+        if (typeof printMediaQueryList.addListener === 'function') {
+            printMediaQueryList.addListener(printMediaQueryHandler);
+        }
+    }
+
+    function runPrintJob({ mode, viewId, beforePrint, afterPrint } = {}) {
+        finishPrintJob();
+        const previousView = document.querySelector('.view-panel.active')?.id || getInitialViewTarget();
+        activePrintJob = {
+            afterPrint: typeof afterPrint === 'function' ? afterPrint : null,
+            previousView,
+            viewId
+        };
+        document.body.dataset.printMode = mode || '';
+        if (typeof beforePrint === 'function') beforePrint();
+        if (viewId) activateView(viewId, { persist: false });
+        const handleFocus = () => {
+            window.removeEventListener('focus', handleFocus);
+            window.setTimeout(() => {
+                if (activePrintJob && !printMediaQueryList?.matches) finishPrintJob();
+            }, 150);
+        };
+        window.addEventListener('focus', handleFocus);
+        window.print();
+    }
+
+    function finishPrintJob() {
+        if (!activePrintJob) return;
+        const { afterPrint, previousView, viewId } = activePrintJob;
+        activePrintJob = null;
+        delete document.body.dataset.printMode;
+        if (typeof afterPrint === 'function') afterPrint();
+        const currentView = document.querySelector('.view-panel.active')?.id;
+        if (previousView && currentView === viewId) activateView(previousView, { persist: false });
     }
 
     function isMobileViewport() {
