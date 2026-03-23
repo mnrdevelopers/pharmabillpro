@@ -97,7 +97,20 @@
     </div>
 
     <div id="app-container" class="app-layout" style="display: none;">
-        <aside class="sidebar no-print">
+        <div class="mobile-topbar no-print">
+            <button id="mobile-menu-toggle" class="mobile-icon-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-sidebar">
+                <i class="fa-solid fa-bars"></i>
+            </button>
+            <div class="mobile-topbar-brand">
+                <i class="fa-solid fa-notes-medical"></i>
+                <span>PharmaBill Pro</span>
+            </div>
+            <button id="mobile-quick-invoice" class="mobile-icon-btn accent" type="button" aria-label="Open new invoice">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+        </div>
+        <div id="mobile-sidebar-overlay" class="mobile-sidebar-overlay no-print"></div>
+        <aside id="mobile-sidebar" class="sidebar no-print">
             <div class="sidebar-brand">
                 <i class="fa-solid fa-notes-medical"></i>
                 <h2>PharmaBill Pro</h2>
@@ -694,6 +707,24 @@ Date   :<span id="print-invoice-date"></span></div>
                 </div>
             </div>
         </main>
+        <nav class="mobile-bottom-nav no-print" aria-label="Quick navigation">
+            <button class="mobile-nav-btn active" data-target="view-dashboard" type="button">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Home</span>
+            </button>
+            <button class="mobile-nav-btn" data-target="view-billing" type="button">
+                <i class="fa-solid fa-file-invoice"></i>
+                <span>Invoice</span>
+            </button>
+            <button class="mobile-nav-btn" data-target="view-invoices" type="button">
+                <i class="fa-solid fa-folder-open"></i>
+                <span>Invoices</span>
+            </button>
+            <button class="mobile-nav-btn" data-target="view-orders" type="button">
+                <i class="fa-solid fa-prescription-bottle-medical"></i>
+                <span>Orders</span>
+            </button>
+        </nav>
     </div>
 
     <div id="loading-overlay" class="overlay">
