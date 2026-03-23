@@ -896,7 +896,10 @@ button { border: 0; cursor: pointer; }
     @page { margin: 10mm; size: A4 portrait; }
     body { background: #fff !important; color: #000 !important; overflow: auto !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .no-print, .sidebar, .view-header, .panel-header, .actions, .modal-shell, .toast-container { display: none !important; }
-    .app-layout, .main-content, .view-panel, .dashboard-scroll-area { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
+    .app-layout, .main-content, .dashboard-scroll-area { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
+    .view-panel { display: none !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
+    body[data-print-mode="invoice"] #view-billing,
+    body[data-print-mode="reports"] #view-reports { display: block !important; }
     .panel { border: none !important; box-shadow: none !important; border-radius: 0 !important; background: transparent !important;}
     .invoice-workspace { padding: 0 !important; }
     
@@ -905,6 +908,9 @@ button { border: 0; cursor: pointer; }
     .invoice-section { padding: 0 !important; border: none !important; }
     
     .print-only { display: block !important; }
+    body[data-print-mode="reports"] #print-pharmacy-header,
+    body[data-print-mode="reports"] #print-pharmacy-footer { display: none !important; }
+    body[data-print-mode="invoice"] .report-print-header { display: none !important; }
     
     /* Table modifications for dot-matrix exact width look */
     .table-container { padding: 0 !important; overflow: hidden !important; width: 100% !important; margin-bottom: 6px !important;}
