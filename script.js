@@ -2,8 +2,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     const SUPABASE_URL = 'https://rgailnxnblttwflgwjtn.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_Vu0X5D2-5r663Co4yqbbZw_2Ura1WBv';
+    const SUPABASE_PROJECT_REF = new URL(SUPABASE_URL).hostname.split('.')[0];
     const ACTIVE_VIEW_STORAGE_KEY = 'pharmaActiveView';
     const APP_DATA_TABLE = 'pharmacy_app_data';
+    const MEDICINE_SCHEDULE_OPTIONS = ['OTC', 'H', 'H1', 'H2', 'X', 'X1', 'NRx', 'Generic', 'Ayurvedic'];
+    const AGENCY_ORDER_STATUS_OPTIONS = ['Draft', 'Placed', 'Partially Received', 'Received', 'Cancelled'];
     const LEGACY_STORAGE_KEYS = {
         stock: 'pharmaStockData',
         invoices: 'pharmaInvoices',
@@ -19,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let editingInvoiceId = null;
     let activeInvoiceViewId = null;
     let confirmHandler = null;
+    let confirmRestoreModalId = null;
+    let confirmSourceModalClosedByAction = false;
+    let modalZIndexCounter = 100;
     let appDataLoaded = false;
     let appDataLoadPromise = null;
     let activePrintJob = null;
@@ -27,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const state = {
         stockData: [],
+        agencyData: [],
+        agencyOrderData: [],
         invoiceData: [],
         orderData: [],
         pharmacyDetails: normalizeSettings(null)
@@ -124,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function injectInterfaceUpgrades() {
         const inventoryHeader = document.querySelector('#view-inventory .view-header');
         if (inventoryHeader && !document.getElementById('inventory-search')) {
-            inventoryHeader.insertAdjacentHTML('beforeend', '<div class="actions premium-actions"><div class="search-box"><i class="fa-solid fa-magnifying-glass"></i><input id="inventory-search" class="form-control" type="search" placeholder="Search inventory"></div><button id="open-add-stock-modal" class="btn btn-success primary"><i class="fa-solid fa-plus"></i> Add Item</button><button id="open-import-stock-modal" class="btn btn-outline-secondary secondary"><i class="fa-solid fa-file-import"></i> Import JSON</button></div>');
+            inventoryHeader.insertAdjacentHTML('beforeend', '<div class="actions premium-actions"><div class="search-box"><i class="fa-solid fa-magnifying-glass"></i><input id="inventory-search" class="form-control" type="search" placeholder="Search purchases, agencies, batch"></div><button id="open-agency-modal" class="btn btn-outline-secondary secondary"><i class="fa-solid fa-building"></i> Add Agency</button><button id="open-agency-order-modal" class="btn btn-outline-secondary secondary"><i class="fa-solid fa-file-circle-plus"></i> Agency Order</button><button id="open-add-stock-modal" class="btn btn-success primary"><i class="fa-solid fa-plus"></i> Add Purchase</button><button id="open-import-stock-modal" class="btn btn-outline-secondary secondary"><i class="fa-solid fa-file-import"></i> Import Purchases</button></div>');
         }
         const invoicesHeader = document.querySelector('#view-invoices .view-header');
         if (invoicesHeader && !document.getElementById('invoice-search')) {
@@ -138,7 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const dashboardArea = document.querySelector('#view-dashboard .dashboard-scroll-area');
         if (dashboardArea && !document.getElementById('db-stock-count')) {
             const metricGrid = dashboardArea.querySelector('.dashboard-grid');
-            metricGrid.insertAdjacentHTML('beforeend', '<div class="metric-card premium-card"><div class="metric-icon"><i class="fa-solid fa-box"></i></div><div class="metric-content"><h3>Inventory Items</h3><p id="db-stock-count">0</p></div></div><div class="metric-card premium-card"><div class="metric-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="metric-content"><h3>Low Stock</h3><p id="db-low-stock-count">0</p></div></div>');
+            metricGrid.insertAdjacentHTML('beforeend', '<div class="metric-card premium-card"><div class="metric-icon"><i class="fa-solid fa-box"></i></div><div class="metric-content"><h3>Purchase Items</h3><p id="db-stock-count">0</p></div></div><div class="metric-card premium-card"><div class="metric-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="metric-content"><h3>Low Stock</h3><p id="db-low-stock-count">0</p></div></div>');
             dashboardArea.insertAdjacentHTML('beforeend', '<div class="dashboard-extras"><div class="panel mt-3"><div class="panel-header"><h3><i class="fa-solid fa-clock-rotate-left"></i> Recent Activity</h3></div><div id="dashboard-activity" class="activity-list"></div></div><div class="panel mt-3"><div class="panel-header"><h3><i class="fa-solid fa-warehouse"></i> Low Stock Watch</h3></div><div id="dashboard-low-stock" class="activity-list"></div></div></div>');
         }
         const settingsPanel = document.querySelector('#view-settings .panel');
@@ -147,9 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (invoiceTableHeadRow) {
             invoiceTableHeadRow.innerHTML = '<th>Date/Time</th><th>Invoice No</th><th>Patient Name</th><th>Total Amount</th><th>Status</th><th>Actions</th>';
         }
-        const inventoryTableHeadRow = document.querySelector('#view-inventory table thead tr');
+        const inventoryTableHeadRow = document.querySelector('#stock-inventory-table thead tr');
         if (inventoryTableHeadRow) {
-            inventoryTableHeadRow.innerHTML = '<th>Product Name</th><th>SCH</th><th>MFG</th><th>Batch</th><th>EXP</th><th>Shelf</th><th>QTY</th><th>Rate</th><th>Status</th><th>Actions</th>';
+            inventoryTableHeadRow.innerHTML = '<th>Product Name</th><th>Agency</th><th>SCH</th><th>MFG</th><th>Batch</th><th>EXP</th><th>Shelf</th><th>QTY</th><th>Rate</th><th>Status</th><th>Actions</th>';
         }
         if (settingsHeader && !document.getElementById('open-settings-modal')) {
             settingsHeader.insertAdjacentHTML('beforeend', '<div class="actions premium-actions"><button id="open-settings-modal" class="btn btn-success primary"><i class="fa-solid fa-pen-to-square"></i> Edit Profile</button><button id="open-reset-data-modal" class="btn btn-outline-secondary secondary"><i class="fa-solid fa-trash"></i> Reset Data</button></div>');
@@ -163,11 +171,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div id="notice-modal" class="modal-shell"><div class="modal-card"><div class="modal-header"><h3 id="notice-title">Notice</h3><button class="close-btn" data-close-modal="notice-modal">&times;</button></div><p id="notice-message"></p><div class="modal-footer"><button class="btn btn-success primary" data-close-modal="notice-modal">Close</button></div></div></div>
                 <div id="invoice-view-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3 id="invoice-view-title">Invoice Preview</h3><button class="close-btn" data-close-modal="invoice-view-modal">&times;</button></div><div id="invoice-view-meta" class="invoice-preview-meta"></div><div class="table-container"><table class="invoice-table table align-middle mb-0"><thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody id="invoice-view-items"></tbody></table></div><div class="modal-footer"><button id="invoice-view-edit-btn" class="btn btn-outline-secondary secondary">Edit</button><button id="invoice-view-delete-btn" class="btn btn-danger danger-solid">Delete</button></div></div></div>
                 <div id="order-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3 id="order-modal-title">Medicine Order</h3><button class="close-btn" data-close-modal="order-modal">&times;</button></div><form id="order-form"><input type="hidden" id="order-id"><div class="form-grid compact"><div class="form-group"><label>Patient Name</label><input id="order-patient-name" class="form-control" required></div><div class="form-group"><label>Phone Number</label><input id="order-patient-phone" class="form-control" placeholder="Optional"></div><div class="form-group"><label>Medicine Name</label><input id="order-medicine-name" class="form-control" required></div><div class="form-group"><label>Quantity</label><input id="order-quantity" class="form-control" type="number" min="1" step="1" value="1"></div><div class="form-group"><label>Due Date</label><input id="order-due-date" class="form-control" type="date" required></div><div class="form-group"><label>Status</label><select id="order-status" class="form-control" style="appearance: auto;"><option value="Pending">Pending</option><option value="Ordered">Ordered</option><option value="Ready">Ready</option><option value="Delivered">Delivered</option><option value="Cancelled">Cancelled</option></select></div><div class="form-group full-span"><label>Notes</label><textarea id="order-notes" class="form-control" rows="3" placeholder="Anything important for this patient order"></textarea></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary secondary" data-close-modal="order-modal">Cancel</button><button class="btn btn-success primary" type="submit">Save Order</button></div></form></div></div>
-                <div id="inventory-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3 id="inventory-modal-title">Inventory Item</h3><button class="close-btn" data-close-modal="inventory-modal">&times;</button></div><form id="inventory-form"><input type="hidden" id="inventory-id"><div class="form-grid compact"><div class="form-group"><label>Item Name</label><input id="inventory-item" class="form-control" required></div><div class="form-group"><label>Category</label><input id="inventory-category" class="form-control"></div><div class="form-group"><label>SCH</label><input id="inventory-sch" class="form-control"></div><div class="form-group"><label>MFG</label><input id="inventory-mfg" class="form-control"></div><div class="form-group"><label>Batch</label><input id="inventory-batch" class="form-control"></div><div class="form-group"><label>Expiry</label><input id="inventory-expiry" class="form-control"></div><div class="form-group"><label>Shelf / Rack</label><input id="inventory-shelf" class="form-control" placeholder="e.g. Shelf A2"></div><div class="form-group"><label>Stock Qty</label><input id="inventory-stock" class="form-control" type="number" min="0"></div><div class="form-group"><label>Tabs Per Sheet</label><input id="inventory-units-per-sheet" class="form-control" type="number" min="0" step="1" placeholder="e.g. 10"></div><div class="form-group"><label>Sheet Price</label><input id="inventory-sheet-price" class="form-control" type="number" min="0" step="0.01" placeholder="e.g. 10.00"></div><div class="form-group"><label>Rate Per Tablet</label><input id="inventory-price" class="form-control" type="number" min="0" step="0.01"></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary secondary" data-close-modal="inventory-modal">Cancel</button><button class="btn btn-success primary" type="submit">Save Item</button></div></form></div></div>
-                <div id="inventory-import-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3>Import Inventory JSON</h3><button class="close-btn" data-close-modal="inventory-import-modal">&times;</button></div><div class="form-group"><label>JSON Array</label><textarea id="stock-json-modal-input" class="form-control" rows="8" placeholder='[{"item":"Paracetamol 500mg","sch":"H","mfg":"SUN","batch":"B10","stock":100,"unitsPerSheet":10,"sheetPrice":10,"price":1,"expiry":"12/26"}]'></textarea></div><div class="modal-footer"><button class="btn btn-outline-secondary secondary" data-close-modal="inventory-import-modal">Cancel</button><button id="save-json-stock-modal-btn" class="btn btn-success primary">Import Items</button></div></div></div>
+                <div id="inventory-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3 id="inventory-modal-title">Purchase Item</h3><button class="close-btn" data-close-modal="inventory-modal">&times;</button></div><form id="inventory-form"><input type="hidden" id="inventory-id"><div class="form-grid compact"><div class="form-group"><label>Item Name</label><input id="inventory-item" class="form-control" required></div><div class="form-group"><label>Supplier Agency</label><select id="inventory-agency" class="form-control" style="appearance: auto;"></select><p id="inventory-agency-help" class="text-sm mb-0"></p></div><div class="form-group"><label>Category</label><input id="inventory-category" class="form-control" placeholder="Tablet, syrup, injection"></div><div class="form-group"><label>Medicine Schedule</label><select id="inventory-sch" class="form-control" style="appearance: auto;"></select></div><div class="form-group"><label>Manufacturer</label><input id="inventory-mfg" class="form-control"></div><div class="form-group"><label>Batch</label><input id="inventory-batch" class="form-control"></div><div class="form-group"><label>Expiry</label><input id="inventory-expiry" class="form-control" placeholder="MM/YY"></div><div class="form-group"><label>Shelf / Rack</label><input id="inventory-shelf" class="form-control" placeholder="e.g. Shelf A2"></div><div class="form-group"><label>Stock Qty</label><input id="inventory-stock" class="form-control" type="number" min="0"></div><div class="form-group"><label>Tabs Per Sheet</label><input id="inventory-units-per-sheet" class="form-control" type="number" min="0" step="1" placeholder="e.g. 10"></div><div class="form-group"><label>Sheet Price</label><input id="inventory-sheet-price" class="form-control" type="number" min="0" step="0.01" placeholder="e.g. 10.00"></div><div class="form-group"><label>Rate Per Tablet</label><input id="inventory-price" class="form-control" type="number" min="0" step="0.01"></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary secondary" data-close-modal="inventory-modal">Cancel</button><button class="btn btn-success primary" type="submit">Save Purchase</button></div></form></div></div>
+                <div id="inventory-import-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3>Import Purchases JSON</h3><button class="close-btn" data-close-modal="inventory-import-modal">&times;</button></div><div class="form-group"><label>JSON Array</label><textarea id="stock-json-modal-input" class="form-control" rows="8" placeholder='[{"item":"Paracetamol 500mg","agencyName":"Apollo Agency","sch":"H1","mfg":"SUN","batch":"B10","stock":100,"unitsPerSheet":10,"sheetPrice":10,"price":1,"expiry":"12/26"}]'></textarea></div><div class="modal-footer"><button class="btn btn-outline-secondary secondary" data-close-modal="inventory-import-modal">Cancel</button><button id="save-json-stock-modal-btn" class="btn btn-success primary">Import Purchases</button></div></div></div>
+                <div id="agency-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3 id="agency-modal-title">Add Agency</h3><button class="close-btn" data-close-modal="agency-modal">&times;</button></div><form id="agency-form"><input type="hidden" id="agency-id"><div class="form-grid compact"><div class="form-group"><label>Agency Name</label><input id="agency-name" class="form-control" required></div><div class="form-group"><label>Contact Person</label><input id="agency-contact" class="form-control"></div><div class="form-group"><label>Phone</label><input id="agency-phone" class="form-control"></div><div class="form-group full-span"><label>Address</label><textarea id="agency-address" class="form-control" rows="2"></textarea></div><div class="form-group full-span"><label>Notes</label><textarea id="agency-notes" class="form-control" rows="2" placeholder="Payment terms, GST notes, account details"></textarea></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary secondary" data-close-modal="agency-modal">Cancel</button><button class="btn btn-success primary" type="submit">Save Agency</button></div></form><div class="panel mt-3"><div class="panel-header"><h3><i class="fa-solid fa-building"></i> Saved Agencies</h3></div><div id="agency-list" class="activity-list"></div></div></div></div>
+                <div id="agency-order-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3 id="agency-order-modal-title">Agency Order</h3><button class="close-btn" data-close-modal="agency-order-modal">&times;</button></div><form id="agency-order-form"><input type="hidden" id="agency-order-id"><div class="form-grid compact"><div class="form-group"><label>Agency</label><select id="agency-order-agency" class="form-control" style="appearance: auto;"></select></div><div class="form-group"><label>Status</label><select id="agency-order-status" class="form-control" style="appearance: auto;"></select></div><div class="form-group"><label>Order Date</label><input id="agency-order-date" class="form-control" type="date"></div><div class="form-group"><label>Expected Date</label><input id="agency-order-expected-date" class="form-control" type="date"></div><div class="form-group full-span"><label>Medicines / Summary</label><textarea id="agency-order-items" class="form-control" rows="3" placeholder="Example: Paracetamol 500mg x 20 boxes, Azithromycin 500mg x 5 boxes"></textarea></div><div class="form-group"><label>Supplier Invoice / Ref</label><input id="agency-order-invoice-ref" class="form-control" placeholder="Optional bill or challan number"></div><div class="form-group"><label>Total Amount</label><input id="agency-order-total" class="form-control" type="number" min="0" step="0.01" value="0"></div><div class="form-group"><label>Paid Amount</label><input id="agency-order-paid" class="form-control" type="number" min="0" step="0.01" value="0"></div><div class="form-group"><label>Due Amount</label><input id="agency-order-due" class="form-control" type="text" readonly tabindex="-1" value="0.00"></div><div class="form-group full-span"><label>Notes</label><textarea id="agency-order-notes" class="form-control" rows="2" placeholder="Delivery, due follow-up, damaged stock, payment remarks"></textarea></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary secondary" data-close-modal="agency-order-modal">Cancel</button><button class="btn btn-success primary" type="submit">Save Agency Order</button></div></form></div></div>
                 <div id="settings-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3>Edit Pharmacy Profile</h3><button class="close-btn" data-close-modal="settings-modal">&times;</button></div><form id="settings-form-modal"><div class="form-grid compact"><div class="form-group"><label>Name</label><input id="modal-setting-name" class="form-control"></div><div class="form-group"><label>Owner</label><input id="modal-setting-owner" class="form-control"></div><div class="form-group"><label>Phone</label><input id="modal-setting-phone" class="form-control"></div><div class="form-group"><label>GSTIN</label><input id="modal-setting-gstin" class="form-control"></div><div class="form-group full-span"><label>Address</label><textarea id="modal-setting-address" class="form-control" rows="3"></textarea></div><div class="form-group"><label>D.L.No1</label><input id="modal-setting-dl1" class="form-control"></div><div class="form-group"><label>D.L.No2</label><input id="modal-setting-dl2" class="form-control"></div><div class="form-group full-span"><label>Footer Note</label><textarea id="modal-setting-footer" class="form-control" rows="2"></textarea></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary secondary" data-close-modal="settings-modal">Cancel</button><button class="btn btn-success primary" type="submit">Save Changes</button></div></form></div></div>
                 <div id="reset-password-modal" class="modal-shell"><div class="modal-card"><div class="modal-header"><h3>Reset Password</h3><button class="close-btn" data-close-modal="reset-password-modal">&times;</button></div><div class="form-group"><label>Email</label><input id="reset-email" class="form-control" type="email" placeholder="admin@pharmabill.com"></div><div class="modal-footer"><button class="btn btn-outline-secondary secondary" data-close-modal="reset-password-modal">Cancel</button><button id="send-reset-btn" class="btn btn-success primary">Send Reset Link</button></div></div></div>
-                <div id="product-picker-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3>Select Inventory Item</h3><button class="close-btn" data-close-modal="product-picker-modal">&times;</button></div><div class="search-box"><i class="fa-solid fa-magnifying-glass"></i><input id="product-picker-search" class="form-control" type="search" placeholder="Search products"></div><div id="product-picker-list" class="picker-list"></div></div></div>
+                <div id="product-picker-modal" class="modal-shell"><div class="modal-card modal-wide"><div class="modal-header"><h3>Select Purchase Item</h3><button class="close-btn" data-close-modal="product-picker-modal">&times;</button></div><div class="search-box"><i class="fa-solid fa-magnifying-glass"></i><input id="product-picker-search" class="form-control" type="search" placeholder="Search products or agencies"></div><div id="product-picker-list" class="picker-list"></div></div></div>
             `);
         }
     }
@@ -211,9 +221,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyBusinessState(payload = {}) {
+        const normalizedStock = normalizeStock(payload.stockData || []);
+        const normalizedAgencies = normalizeAgencies([
+            ...(payload.pharmacyDetails?.agencies || []),
+            ...normalizedStock
+                .filter(item => item.agencyName)
+                .map(item => ({ id: item.agencyId, name: item.agencyName }))
+        ]);
+        const normalizedAgencyOrders = reconcileAgencyOrders(
+            normalizeAgencyOrders(payload.pharmacyDetails?.agencyOrders || []),
+            normalizedAgencies
+        );
         const normalizedInvoices = normalizeInvoices(payload.invoiceData || []);
         const invoiceDataWasRepaired = JSON.stringify(payload.invoiceData || []) !== JSON.stringify(normalizedInvoices);
-        state.stockData = normalizeStock(payload.stockData || []);
+        state.stockData = reconcileStockAgencies(normalizedStock, normalizedAgencies);
+        state.agencyData = normalizedAgencies;
+        state.agencyOrderData = normalizedAgencyOrders;
         state.invoiceData = normalizedInvoices;
         state.orderData = normalizeOrders(payload.orderData || []);
         state.pharmacyDetails = normalizeSettings(payload.pharmacyDetails || null);
@@ -226,7 +249,11 @@ document.addEventListener('DOMContentLoaded', () => {
             stock_data: state.stockData,
             invoice_data: state.invoiceData,
             order_data: state.orderData,
-            pharmacy_details: state.pharmacyDetails
+            pharmacy_details: {
+                ...state.pharmacyDetails,
+                agencies: state.agencyData,
+                agencyOrders: state.agencyOrderData
+            }
         };
     }
 
@@ -272,7 +299,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderAppState() {
         renderPharmacyDetails();
+        renderAgencyList();
         renderStockTable();
+        renderAgencyOverview();
         renderDashboard();
         renderInvoiceTable();
         renderOrders();
@@ -363,15 +392,61 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function isInvalidRefreshTokenError(error) {
+        return /invalid refresh token|refresh token not found/i.test(error?.message || '');
+    }
+
+    function clearSupabaseAuthStorage() {
+        [window.localStorage, window.sessionStorage].forEach(storage => {
+            if (!storage) return;
+            const keysToRemove = [];
+            for (let index = 0; index < storage.length; index += 1) {
+                const key = storage.key(index);
+                if (key && key.startsWith(`sb-${SUPABASE_PROJECT_REF}-`) && key.includes('auth-token')) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => storage.removeItem(key));
+        });
+    }
+
+    async function recoverFromInvalidSession(error) {
+        console.warn('Clearing invalid Supabase session.', error);
+        try {
+            if (supabase) {
+                await supabase.auth.signOut({ scope: 'local' });
+            }
+        } catch (signOutError) {
+            console.warn('Supabase local sign-out failed while clearing session.', signOutError);
+        }
+        clearSupabaseAuthStorage();
+        currentUser = null;
+    }
+
     async function checkSession() {
         showLoading('Checking Session...');
-        const { data } = await supabase.auth.getSession();
-        hideLoading();
-        if (data?.session) {
-            currentUser = data.session.user;
-            showApp();
-        } else {
-            showAuth();
+        try {
+            const { data, error } = await supabase.auth.getSession();
+            if (error) throw error;
+            currentUser = data?.session?.user || null;
+            if (currentUser) {
+                showApp();
+            } else {
+                showAuth();
+            }
+        } catch (error) {
+            if (isInvalidRefreshTokenError(error)) {
+                await recoverFromInvalidSession(error);
+                showAuth();
+                showAuthAlert('Your previous session expired. Please sign in again.', 'error');
+            } else {
+                console.error('Failed to restore Supabase session.', error);
+                currentUser = null;
+                showAuth();
+                showAuthAlert('Unable to restore your session right now. Please sign in again.', 'error');
+            }
+        } finally {
+            hideLoading();
         }
         supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_IN') {
@@ -415,6 +490,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return value.trim().toLowerCase();
     }
 
+    function normalizeTextValue(value) {
+        return String(value || '').trim().replace(/\s+/g, ' ');
+    }
+
+    function normalizeMedicineSchedule(value) {
+        const normalized = normalizeTextValue(value).toUpperCase();
+        return normalized || 'OTC';
+    }
+
     function isValidEmail(value) {
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
     }
@@ -456,11 +540,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function validateResetEmail() {
-        clearFieldError(authInputs.resetEmail);
-        const email = normalizeEmail(authInputs.resetEmail.value);
+        const resetEmailInput = document.getElementById('reset-email');
+        if (!resetEmailInput) {
+            showToast('Password reset is unavailable right now. Please reload and try again.', 'error');
+            return false;
+        }
+        clearFieldError(resetEmailInput);
+        const email = normalizeEmail(resetEmailInput.value);
         const notify = message => showToast(message, 'error');
-        if (!email) return setFieldError(authInputs.resetEmail, 'Enter the account email first.', notify);
-        if (!isValidEmail(email)) return setFieldError(authInputs.resetEmail, 'Enter a valid email address.', notify);
+        if (!email) return setFieldError(resetEmailInput, 'Enter the account email first.', notify);
+        if (!isValidEmail(email)) return setFieldError(resetEmailInput, 'Enter a valid email address.', notify);
         return email;
     }
 
@@ -476,6 +565,383 @@ document.addEventListener('DOMContentLoaded', () => {
         const packPrice = Number(item.sheetPrice || 0);
         if (!units || !packPrice) return '';
         return `${units} tabs/sheet | Sheet Rs ${packPrice.toFixed(2)}`;
+    }
+
+    function populateScheduleOptions(selectId, selectedValue = 'OTC') {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const nextValue = normalizeMedicineSchedule(selectedValue);
+        select.innerHTML = MEDICINE_SCHEDULE_OPTIONS.map(option => `<option value="${option}">${option}</option>`).join('');
+        select.value = MEDICINE_SCHEDULE_OPTIONS.includes(nextValue) ? nextValue : 'OTC';
+    }
+
+    function populateAgencyOptions(selectedId = '', fallbackName = '') {
+        const select = document.getElementById('inventory-agency');
+        const helper = document.getElementById('inventory-agency-help');
+        if (!select) return;
+
+        const fallback = normalizeTextValue(fallbackName);
+        const options = ['<option value="">Select agency</option>'];
+        state.agencyData.forEach(agency => {
+            options.push(`<option value="${agency.id}">${escapeHtml(agency.name)}</option>`);
+        });
+        if (fallback && !state.agencyData.some(agency => agency.name.toLowerCase() === fallback.toLowerCase())) {
+            options.push(`<option value="">${escapeHtml(fallback)} (saved on item)</option>`);
+        }
+        select.innerHTML = options.join('');
+        select.value = selectedId || '';
+        select.disabled = !state.agencyData.length;
+
+        if (helper) {
+            helper.textContent = state.agencyData.length
+                ? 'Select the supplier agency for this purchase item.'
+                : 'Add an agency first, then come back here to assign it to the purchase item.';
+        }
+    }
+
+    function populateAgencySelect(selectId, selectedId = '', includePlaceholder = true) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const options = [];
+        if (includePlaceholder) {
+            options.push('<option value="">Select agency</option>');
+        }
+        state.agencyData.forEach(agency => {
+            options.push(`<option value="${agency.id}">${escapeHtml(agency.name)}</option>`);
+        });
+        select.innerHTML = options.join('');
+        select.value = selectedId || '';
+        select.disabled = !state.agencyData.length;
+    }
+
+    function populateAgencyOrderStatusOptions(selectedValue = 'Draft') {
+        const select = document.getElementById('agency-order-status');
+        if (!select) return;
+        select.innerHTML = AGENCY_ORDER_STATUS_OPTIONS.map(option => `<option value="${option}">${option}</option>`).join('');
+        select.value = AGENCY_ORDER_STATUS_OPTIONS.includes(selectedValue) ? selectedValue : 'Draft';
+    }
+
+    function renderAgencyList() {
+        const list = document.getElementById('agency-list');
+        if (!list) return;
+        list.innerHTML = '';
+        state.agencyData.forEach(agency => {
+            list.insertAdjacentHTML('beforeend', `
+                <div class="activity-item">
+                    <div>
+                        <strong>${escapeHtml(agency.name)}</strong>
+                        <span>${escapeHtml(agency.contactName || 'No contact person')} ${agency.phone ? `| ${escapeHtml(agency.phone)}` : ''}</span>
+                        <em>${escapeHtml(agency.address || agency.notes || 'No extra details')}</em>
+                    </div>
+                    <div class="table-actions wrap">
+                        <button class="btn secondary btn-sm js-agency-edit" data-id="${agency.id}"><i class="fa-solid fa-pen"></i></button>
+                        <button class="btn danger-solid btn-sm js-agency-delete" data-id="${agency.id}"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+            `);
+        });
+        if (!list.children.length) {
+            list.innerHTML = '<div class="activity-item empty">No agencies added yet.</div>';
+        }
+        list.querySelectorAll('.js-agency-edit').forEach(btn => btn.addEventListener('click', () => openAgencyModal(btn.dataset.id)));
+        list.querySelectorAll('.js-agency-delete').forEach(btn => btn.addEventListener('click', () => confirmAction('Delete agency', 'Remove this agency from your supplier list?', () => deleteAgency(btn.dataset.id))));
+    }
+
+    function resetAgencyForm() {
+        setValue('agency-id', '');
+        setValue('agency-name', '');
+        setValue('agency-contact', '');
+        setValue('agency-phone', '');
+        setValue('agency-address', '');
+        setValue('agency-notes', '');
+        const title = document.getElementById('agency-modal-title');
+        if (title) title.textContent = 'Add Agency';
+    }
+
+    function openAgencyModal(id = null) {
+        const agency = state.agencyData.find(item => item.id === id);
+        if (!agency) {
+            resetAgencyForm();
+        } else {
+            setValue('agency-id', agency.id);
+            setValue('agency-name', agency.name);
+            setValue('agency-contact', agency.contactName);
+            setValue('agency-phone', agency.phone);
+            setValue('agency-address', agency.address);
+            setValue('agency-notes', agency.notes);
+            const title = document.getElementById('agency-modal-title');
+            if (title) title.textContent = 'Edit Agency';
+        }
+        renderAgencyList();
+        openModal('agency-modal');
+    }
+
+    function getAgencyOrderDueAmount(order) {
+        return roundCurrency(Math.max(0, Number(order.totalAmount || 0) - Number(order.paidAmount || 0)));
+    }
+
+    function getAgencyOrderPaymentStatus(order) {
+        if (order.status === 'Cancelled') return { label: 'Cancelled', className: 'neutral' };
+        const due = getAgencyOrderDueAmount(order);
+        const paid = Number(order.paidAmount || 0);
+        if (due <= 0 && Number(order.totalAmount || 0) > 0) return { label: 'Paid', className: 'ready' };
+        if (paid > 0) return { label: 'Partial', className: 'warn' };
+        return { label: 'Unpaid', className: 'danger' };
+    }
+
+    function getAgencyOrderStatusMeta(order) {
+        switch (order.status) {
+            case 'Received':
+                return { label: 'Received', className: 'ready' };
+            case 'Partially Received':
+                return { label: 'Partially Received', className: 'warn' };
+            case 'Cancelled':
+                return { label: 'Cancelled', className: 'neutral' };
+            case 'Placed':
+                return { label: 'Placed', className: '' };
+            default:
+                return { label: 'Draft', className: 'neutral' };
+        }
+    }
+
+    function syncAgencyOrderDueDisplay() {
+        const total = Number(document.getElementById('agency-order-total')?.value || 0);
+        const paid = Number(document.getElementById('agency-order-paid')?.value || 0);
+        const dueInput = document.getElementById('agency-order-due');
+        if (dueInput) {
+            dueInput.value = formatCurrency(Math.max(0, total - paid));
+        }
+    }
+
+    function openAgencyOrderModal(id = null, defaults = {}) {
+        const today = getTodayDateString();
+        const order = state.agencyOrderData.find(item => item.id === id) || {
+            id: '',
+            agencyId: defaults.agencyId || '',
+            agencyName: defaults.agencyName || '',
+            status: 'Draft',
+            orderDate: today,
+            expectedDate: '',
+            itemSummary: defaults.itemSummary || '',
+            invoiceRef: '',
+            totalAmount: 0,
+            paidAmount: 0,
+            notes: defaults.notes || ''
+        };
+        const matchedAgency = state.agencyData.find(item => item.id === order.agencyId || item.name.toLowerCase() === String(order.agencyName || '').toLowerCase());
+        document.getElementById('agency-order-modal-title').textContent = id ? 'Edit Agency Order' : 'Create Agency Order';
+        setValue('agency-order-id', order.id || '');
+        populateAgencySelect('agency-order-agency', matchedAgency?.id || order.agencyId || '');
+        populateAgencyOrderStatusOptions(order.status || 'Draft');
+        setValue('agency-order-date', order.orderDate || today);
+        setValue('agency-order-expected-date', order.expectedDate || '');
+        setValue('agency-order-items', order.itemSummary || defaults.itemSummary || '');
+        setValue('agency-order-invoice-ref', order.invoiceRef || '');
+        setValue('agency-order-total', Number(order.totalAmount || 0));
+        setValue('agency-order-paid', Number(order.paidAmount || 0));
+        setValue('agency-order-notes', order.notes || defaults.notes || '');
+        syncAgencyOrderDueDisplay();
+        if (!state.agencyData.length && !id) {
+            showToast('Add an agency first, then record the supplier order.', 'info');
+        }
+        openModal('agency-order-modal');
+    }
+
+    async function deleteAgency(id) {
+        const agency = state.agencyData.find(item => item.id === id);
+        if (!agency) return;
+        const isLinked = state.stockData.some(item => item.agencyId === id || item.agencyName.toLowerCase() === agency.name.toLowerCase())
+            || state.agencyOrderData.some(item => item.agencyId === id || item.agencyName.toLowerCase() === agency.name.toLowerCase());
+        if (isLinked) {
+            return openNotice('Agencies', 'This agency is already linked to purchase items or agency orders. Update those records first before deleting the agency.');
+        }
+        state.agencyData = state.agencyData.filter(item => item.id !== id);
+        const saved = await persistCloudState({ loadingText: 'Deleting agency...', errorTitle: 'Deleting agency' });
+        if (!saved) return;
+        populateAgencyOptions();
+        populateAgencySelect('agency-order-agency');
+        renderAgencyList();
+        renderAgencyOverview();
+        showToast('Agency deleted.', 'success');
+    }
+
+    function getAgencyOverviewRows() {
+        return state.agencyData.map(agency => {
+            const stockItems = state.stockData.filter(item => item.agencyId === agency.id || getAgencyName(item.agencyId, item.agencyName).toLowerCase() === agency.name.toLowerCase());
+            const orders = state.agencyOrderData.filter(item => item.agencyId === agency.id || item.agencyName.toLowerCase() === agency.name.toLowerCase());
+            const openOrders = orders.filter(item => !['Received', 'Cancelled'].includes(item.status)).length;
+            const totalOrdered = orders.filter(item => item.status !== 'Cancelled').reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
+            const totalPaid = orders.filter(item => item.status !== 'Cancelled').reduce((sum, item) => sum + Number(item.paidAmount || 0), 0);
+            const due = roundCurrency(Math.max(0, totalOrdered - totalPaid));
+            const lastOrder = [...orders].sort((a, b) => `${b.orderDate || ''} ${b.createdAt || ''}`.localeCompare(`${a.orderDate || ''} ${a.createdAt || ''}`))[0];
+            return {
+                agency,
+                stockItems,
+                orders,
+                openOrders,
+                totalOrdered,
+                totalPaid,
+                due,
+                lastOrderDate: lastOrder?.orderDate || ''
+            };
+        }).sort((a, b) => b.due - a.due || a.agency.name.localeCompare(b.agency.name));
+    }
+
+    function renderAgencyOverview() {
+        const overviewRows = getAgencyOverviewRows();
+        const lowStockItems = state.stockData.filter(item => Number(item.stock || 0) <= 10);
+        const pendingOrders = state.agencyOrderData.filter(item => !['Received', 'Cancelled'].includes(item.status));
+        const totalDue = overviewRows.reduce((sum, row) => sum + row.due, 0);
+
+        document.getElementById('purchase-agencies-count')?.replaceChildren(document.createTextNode(String(state.agencyData.length)));
+        document.getElementById('purchase-pending-dues')?.replaceChildren(document.createTextNode(formatCurrency(totalDue)));
+        document.getElementById('purchase-open-orders')?.replaceChildren(document.createTextNode(String(pendingOrders.length)));
+        document.getElementById('purchase-low-stock-count')?.replaceChildren(document.createTextNode(String(lowStockItems.length)));
+
+        const summaryBody = document.getElementById('agency-summary-body');
+        if (summaryBody) {
+            summaryBody.innerHTML = '';
+            overviewRows.forEach(row => {
+                summaryBody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td><strong>${escapeHtml(row.agency.name)}</strong>${row.agency.phone ? `<div class="text-sm">${escapeHtml(row.agency.phone)}</div>` : ''}</td>
+                        <td>${row.stockItems.length}</td>
+                        <td>${row.openOrders}</td>
+                        <td>Rs ${formatCurrency(row.due)}</td>
+                        <td>${row.lastOrderDate ? formatDate(row.lastOrderDate) : '-'}</td>
+                        <td class="table-actions"><button class="btn secondary btn-sm js-agency-quick-order" data-id="${row.agency.id}"><i class="fa-solid fa-file-circle-plus"></i> Order</button></td>
+                    </tr>
+                `);
+            });
+            if (!summaryBody.children.length) {
+                summaryBody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Add your supplier agencies to start tracking purchase history.</td></tr>';
+            }
+            summaryBody.querySelectorAll('.js-agency-quick-order').forEach(btn => btn.addEventListener('click', () => {
+                const agency = state.agencyData.find(item => item.id === btn.dataset.id);
+                if (agency) openAgencyOrderModal(null, { agencyId: agency.id, agencyName: agency.name });
+            }));
+        }
+
+        const duesBody = document.getElementById('agency-dues-body');
+        if (duesBody) {
+            duesBody.innerHTML = '';
+            overviewRows
+                .filter(row => row.totalOrdered > 0 || row.due > 0)
+                .forEach(row => {
+                    const payment = getAgencyOrderPaymentStatus({ ...row, status: row.due <= 0 ? 'Received' : 'Placed', totalAmount: row.totalOrdered, paidAmount: row.totalPaid });
+                    duesBody.insertAdjacentHTML('beforeend', `
+                        <tr>
+                            <td>${escapeHtml(row.agency.name)}</td>
+                            <td>Rs ${formatCurrency(row.totalOrdered)}</td>
+                            <td>Rs ${formatCurrency(row.totalPaid)}</td>
+                            <td><strong>Rs ${formatCurrency(row.due)}</strong></td>
+                            <td><span class="status-badge ${payment.className}">${escapeHtml(payment.label)}</span></td>
+                        </tr>
+                    `);
+                });
+            if (!duesBody.children.length) {
+                duesBody.innerHTML = '<tr><td colspan="5" class="empty-state-cell">No supplier dues recorded.</td></tr>';
+            }
+        }
+
+        const orderBody = document.getElementById('agency-orders-body');
+        if (orderBody) {
+            const search = document.getElementById('agency-orders-search')?.value.trim().toLowerCase() || '';
+            const statusFilter = document.getElementById('agency-orders-status-filter')?.value || 'all';
+            orderBody.innerHTML = '';
+            const filteredOrders = [...state.agencyOrderData]
+                .filter(order => {
+                    if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+                    if (!search) return true;
+                    const haystack = `${order.agencyName} ${order.itemSummary} ${order.invoiceRef} ${order.notes}`.toLowerCase();
+                    return haystack.includes(search);
+                })
+                .sort((a, b) => `${b.orderDate || ''} ${b.createdAt || ''}`.localeCompare(`${a.orderDate || ''} ${a.createdAt || ''}`));
+
+            filteredOrders.forEach(order => {
+                const statusMeta = getAgencyOrderStatusMeta(order);
+                const paymentMeta = getAgencyOrderPaymentStatus(order);
+                orderBody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td>${formatDate(order.orderDate)}</td>
+                        <td><strong>${escapeHtml(order.agencyName || '-')}</strong>${order.invoiceRef ? `<div class="text-sm">${escapeHtml(order.invoiceRef)}</div>` : ''}</td>
+                        <td>${escapeHtml(order.itemSummary || '-')}</td>
+                        <td><span class="status-badge ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span></td>
+                        <td><span class="status-badge ${paymentMeta.className}">${escapeHtml(paymentMeta.label)}</span></td>
+                        <td>Rs ${formatCurrency(order.totalAmount)}</td>
+                        <td>Rs ${formatCurrency(getAgencyOrderDueAmount(order))}</td>
+                        <td class="table-actions wrap"><button class="btn secondary btn-sm js-agency-order-edit" data-id="${order.id}"><i class="fa-solid fa-pen"></i></button><button class="btn danger-solid btn-sm js-agency-order-delete" data-id="${order.id}"><i class="fa-solid fa-trash"></i></button></td>
+                    </tr>
+                `);
+            });
+            if (!orderBody.children.length) {
+                orderBody.innerHTML = '<tr><td colspan="8" class="empty-state-cell">No agency orders found.</td></tr>';
+            }
+            orderBody.querySelectorAll('.js-agency-order-edit').forEach(btn => btn.addEventListener('click', () => openAgencyOrderModal(btn.dataset.id)));
+            orderBody.querySelectorAll('.js-agency-order-delete').forEach(btn => btn.addEventListener('click', () => confirmAction('Delete agency order', 'Remove this agency order from the ledger?', () => deleteAgencyOrder(btn.dataset.id))));
+        }
+
+        const historyList = document.getElementById('agency-history-list');
+        if (historyList) {
+            historyList.innerHTML = '';
+            [...state.agencyOrderData]
+                .sort((a, b) => `${b.orderDate || ''} ${b.createdAt || ''}`.localeCompare(`${a.orderDate || ''} ${a.createdAt || ''}`))
+                .slice(0, 6)
+                .forEach(order => {
+                    const due = getAgencyOrderDueAmount(order);
+                    historyList.insertAdjacentHTML('beforeend', `
+                        <div class="activity-item">
+                            <div>
+                                <strong>${escapeHtml(order.agencyName || '-')}</strong>
+                                <span>${formatDate(order.orderDate)} | ${escapeHtml(order.itemSummary || 'Agency order')}</span>
+                                <em>${escapeHtml(getAgencyOrderStatusMeta(order).label)} | Due Rs ${formatCurrency(due)}</em>
+                            </div>
+                            <button class="btn secondary btn-sm js-agency-history-edit" data-id="${order.id}"><i class="fa-solid fa-pen"></i></button>
+                        </div>
+                    `);
+                });
+            if (!historyList.children.length) {
+                historyList.innerHTML = '<div class="activity-item empty">No agency order history yet.</div>';
+            }
+            historyList.querySelectorAll('.js-agency-history-edit').forEach(btn => btn.addEventListener('click', () => openAgencyOrderModal(btn.dataset.id)));
+        }
+
+        const lowStockList = document.getElementById('purchase-low-stock-list');
+        if (lowStockList) {
+            lowStockList.innerHTML = '';
+            lowStockItems
+                .sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0))
+                .slice(0, 8)
+                .forEach(item => {
+                    const agencyName = getAgencyName(item.agencyId, item.agencyName) || 'No agency';
+                    const suggestedQty = Math.max(0, 20 - Number(item.stock || 0));
+                    lowStockList.insertAdjacentHTML('beforeend', `
+                        <div class="activity-item">
+                            <div>
+                                <strong>${escapeHtml(item.item)}</strong>
+                                <span>${escapeHtml(agencyName)} | Batch ${escapeHtml(item.batch || '-')} | Qty ${Number(item.stock || 0)}</span>
+                                <em>Suggested reorder: ${suggestedQty || 10}</em>
+                            </div>
+                            <button class="btn secondary btn-sm js-low-stock-order" data-id="${item.id}"><i class="fa-solid fa-cart-plus"></i> Order</button>
+                        </div>
+                    `);
+                });
+            if (!lowStockList.children.length) {
+                lowStockList.innerHTML = '<div class="activity-item empty">No low-stock purchase alerts.</div>';
+            }
+            lowStockList.querySelectorAll('.js-low-stock-order').forEach(btn => btn.addEventListener('click', () => {
+                const item = state.stockData.find(stock => stock.id === btn.dataset.id);
+                if (!item) return;
+                const agencyName = getAgencyName(item.agencyId, item.agencyName);
+                const reorderQty = Math.max(10, 20 - Number(item.stock || 0));
+                openAgencyOrderModal(null, {
+                    agencyId: item.agencyId,
+                    agencyName,
+                    itemSummary: `${item.item} x ${reorderQty} | Batch ${item.batch || '-'} | SCH ${item.sch || 'OTC'}`,
+                    notes: `Low-stock reorder for ${item.item}. Current qty: ${Number(item.stock || 0)}.`
+                });
+            }));
+        }
     }
 
     function syncInventoryRateFromSheet() {
@@ -516,7 +982,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 meter.style.width = `${score}%`;
             });
         }
-        document.getElementById('open-reset-modal')?.addEventListener('click', () => openModal('reset-password-modal'));
+        document.getElementById('open-reset-modal')?.addEventListener('click', () => {
+            openModal('reset-password-modal');
+            const resetEmailInput = document.getElementById('reset-email');
+            if (resetEmailInput) {
+                resetEmailInput.value = authInputs.loginEmail?.value?.trim() || '';
+                clearFieldError(resetEmailInput);
+            }
+        });
         document.getElementById('send-reset-btn')?.addEventListener('click', async () => {
             const email = validateResetEmail();
             if (!email || email === false) return;
@@ -525,11 +998,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 return showToast('Supabase authentication is unavailable.', 'error');
             }
             showLoading('Sending reset link...');
-            const { error } = await supabase.auth.resetPasswordForEmail(email);
-            hideLoading();
-            if (error) return showToast(error.message, 'error');
-            closeModal('reset-password-modal');
-            showToast('Password reset link sent.', 'success');
+            try {
+                const { error } = await supabase.auth.resetPasswordForEmail(email);
+                if (error) return showToast(error.message, 'error');
+                closeModal('reset-password-modal');
+                showToast('Password reset link sent.', 'success');
+            } catch (error) {
+                console.error('Failed to send password reset email.', error);
+                showToast('Unable to send the reset link right now. Please try again.', 'error');
+            } finally {
+                hideLoading();
+            }
         });
         document.getElementById('btn-login').onclick = async () => {
             const form = validateLoginForm();
@@ -639,48 +1118,150 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function bindInventory() {
+        document.getElementById('open-agency-modal')?.addEventListener('click', () => openAgencyModal());
+        document.getElementById('open-agency-order-modal')?.addEventListener('click', () => openAgencyOrderModal());
         document.getElementById('open-add-stock-modal')?.addEventListener('click', () => openInventoryModal());
         document.getElementById('open-import-stock-modal')?.addEventListener('click', () => openModal('inventory-import-modal'));
         document.getElementById('inventory-units-per-sheet')?.addEventListener('input', syncInventoryRateFromSheet);
         document.getElementById('inventory-sheet-price')?.addEventListener('input', syncInventoryRateFromSheet);
+        document.getElementById('agency-order-total')?.addEventListener('input', syncAgencyOrderDueDisplay);
+        document.getElementById('agency-order-paid')?.addEventListener('input', syncAgencyOrderDueDisplay);
+        document.getElementById('agency-orders-search')?.addEventListener('input', renderAgencyOverview);
+        document.getElementById('agency-orders-status-filter')?.addEventListener('change', renderAgencyOverview);
+        document.getElementById('agency-form')?.addEventListener('submit', event => {
+            event.preventDefault();
+            const id = document.getElementById('agency-id').value || `agy_${Date.now()}`;
+            const agency = {
+                id,
+                name: normalizeTextValue(document.getElementById('agency-name').value),
+                contactName: normalizeTextValue(document.getElementById('agency-contact').value),
+                phone: normalizeTextValue(document.getElementById('agency-phone').value),
+                address: normalizeTextValue(document.getElementById('agency-address').value),
+                notes: normalizeTextValue(document.getElementById('agency-notes').value),
+                createdAt: state.agencyData.find(item => item.id === id)?.createdAt || new Date().toISOString()
+            };
+            if (!agency.name) return openNotice('Agencies', 'Agency name is required.');
+            const duplicate = state.agencyData.find(item => item.id !== id && item.name.toLowerCase() === agency.name.toLowerCase());
+            if (duplicate) return openNotice('Agencies', `${agency.name} is already in your supplier list.`);
+            const isEdit = state.agencyData.some(item => item.id === id);
+            confirmAction(isEdit ? 'Update agency' : 'Save agency', `Do you want to ${isEdit ? 'update' : 'save'} ${agency.name}?`, async () => {
+                const previous = state.agencyData.find(item => item.id === id);
+                const index = state.agencyData.findIndex(item => item.id === id);
+                if (index >= 0) {
+                    state.agencyData[index] = agency;
+                } else {
+                    state.agencyData.push(agency);
+                }
+                state.agencyData = normalizeAgencies(state.agencyData);
+                state.stockData = state.stockData.map(item => {
+                    if (item.agencyId === id || (previous && item.agencyName.toLowerCase() === previous.name.toLowerCase())) {
+                        return { ...item, agencyId: agency.id, agencyName: agency.name };
+                    }
+                    return item;
+                });
+                state.agencyOrderData = state.agencyOrderData.map(item => {
+                    if (item.agencyId === id || (previous && item.agencyName.toLowerCase() === previous.name.toLowerCase())) {
+                        return { ...item, agencyId: agency.id, agencyName: agency.name };
+                    }
+                    return item;
+                });
+                const saved = await persistCloudState({ loadingText: 'Saving agencies...', errorTitle: 'Saving agencies' });
+                if (!saved) return;
+                populateAgencyOptions(agency.id, agency.name);
+                populateAgencySelect('agency-order-agency', agency.id);
+                renderAgencyList();
+                renderStockTable();
+                renderAgencyOverview();
+                renderProductPicker();
+                closeModal('agency-modal');
+                resetAgencyForm();
+                showToast(isEdit ? 'Agency updated.' : 'Agency added.', 'success');
+            });
+        });
+        document.getElementById('agency-order-form')?.addEventListener('submit', event => {
+            event.preventDefault();
+            const id = document.getElementById('agency-order-id').value || `aord_${Date.now()}`;
+            const agencyId = document.getElementById('agency-order-agency').value;
+            const agencyName = getAgencyName(agencyId);
+            const agencyOrder = {
+                id,
+                agencyId,
+                agencyName,
+                status: document.getElementById('agency-order-status').value,
+                orderDate: document.getElementById('agency-order-date').value || getTodayDateString(),
+                expectedDate: document.getElementById('agency-order-expected-date').value,
+                itemSummary: normalizeTextValue(document.getElementById('agency-order-items').value),
+                invoiceRef: normalizeTextValue(document.getElementById('agency-order-invoice-ref').value),
+                totalAmount: roundCurrency(document.getElementById('agency-order-total').value || 0),
+                paidAmount: roundCurrency(document.getElementById('agency-order-paid').value || 0),
+                notes: normalizeTextValue(document.getElementById('agency-order-notes').value),
+                createdAt: state.agencyOrderData.find(item => item.id === id)?.createdAt || new Date().toISOString()
+            };
+            if (!agencyOrder.agencyId) return openNotice('Agency Orders', 'Select the agency for this order.');
+            if (!agencyOrder.itemSummary) return openNotice('Agency Orders', 'Add a short medicine summary for the agency order.');
+            if (agencyOrder.totalAmount < 0 || agencyOrder.paidAmount < 0) return openNotice('Agency Orders', 'Amounts cannot be negative.');
+            if (agencyOrder.paidAmount > agencyOrder.totalAmount && agencyOrder.totalAmount > 0) return openNotice('Agency Orders', 'Paid amount cannot be greater than total amount.');
+            const isEdit = state.agencyOrderData.some(item => item.id === id);
+            confirmAction(isEdit ? 'Update agency order' : 'Save agency order', `Do you want to ${isEdit ? 'update' : 'save'} this order for ${agencyOrder.agencyName}?`, async () => {
+                const index = state.agencyOrderData.findIndex(item => item.id === id);
+                if (index >= 0) {
+                    state.agencyOrderData[index] = agencyOrder;
+                } else {
+                    state.agencyOrderData.push(agencyOrder);
+                }
+                state.agencyOrderData = reconcileAgencyOrders(state.agencyOrderData);
+                const saved = await persistCloudState({ loadingText: 'Saving agency order...', errorTitle: 'Saving agency order' });
+                if (!saved) return;
+                renderAgencyOverview();
+                closeModal('agency-order-modal');
+                showToast(isEdit ? 'Agency order updated.' : 'Agency order saved.', 'success');
+            });
+        });
         document.getElementById('inventory-form')?.addEventListener('submit', event => {
             event.preventDefault();
             const id = document.getElementById('inventory-id').value || `stk_${Date.now()}`;
+            const agencyId = document.getElementById('inventory-agency').value;
+            const agencyName = getAgencyName(agencyId);
             const unitsPerSheet = Number(document.getElementById('inventory-units-per-sheet').value || 0);
             const sheetPrice = Number(document.getElementById('inventory-sheet-price').value || 0);
             const stockItem = {
                 id,
-                item: document.getElementById('inventory-item').value.trim(),
-                category: document.getElementById('inventory-category').value.trim(),
-                sch: document.getElementById('inventory-sch').value.trim(),
-                mfg: document.getElementById('inventory-mfg').value.trim(),
-                batch: document.getElementById('inventory-batch').value.trim(),
-                expiry: document.getElementById('inventory-expiry').value.trim(),
-                shelf: document.getElementById('inventory-shelf').value.trim(),
+                item: normalizeTextValue(document.getElementById('inventory-item').value),
+                category: normalizeTextValue(document.getElementById('inventory-category').value),
+                sch: normalizeMedicineSchedule(document.getElementById('inventory-sch').value),
+                agencyId,
+                agencyName,
+                mfg: normalizeTextValue(document.getElementById('inventory-mfg').value),
+                batch: normalizeTextValue(document.getElementById('inventory-batch').value),
+                expiry: normalizeTextValue(document.getElementById('inventory-expiry').value),
+                shelf: normalizeTextValue(document.getElementById('inventory-shelf').value),
                 stock: Number(document.getElementById('inventory-stock').value || 0),
                 unitsPerSheet,
                 sheetPrice,
                 price: calculateUnitPriceFromSheet(unitsPerSheet, sheetPrice, document.getElementById('inventory-price').value || 0)
             };
-            if (!stockItem.item) return openNotice('Inventory', 'Item name is required.');
-            if (sheetPrice > 0 && unitsPerSheet <= 0) return openNotice('Inventory', 'Enter tabs per sheet to calculate the tablet price.');
+            if (!stockItem.item) return openNotice('Purchases', 'Item name is required.');
+            if (!stockItem.agencyId) return openNotice('Purchases', 'Select the supplier agency for this purchase item.');
+            if (sheetPrice > 0 && unitsPerSheet <= 0) return openNotice('Purchases', 'Enter tabs per sheet to calculate the tablet price.');
             const isEdit = state.stockData.some(item => item.id === id);
-            confirmAction(isEdit ? 'Update inventory item' : 'Save inventory item', `Do you want to ${isEdit ? 'update' : 'save'} ${stockItem.item}?`, async () => {
+            confirmAction(isEdit ? 'Update purchase item' : 'Save purchase item', `Do you want to ${isEdit ? 'update' : 'save'} ${stockItem.item}?`, async () => {
                 const index = state.stockData.findIndex(item => item.id === id);
                 if (index >= 0) state.stockData[index] = stockItem; else state.stockData.push(stockItem);
-                const saved = await persistStock({ loadingText: 'Saving inventory...', errorTitle: 'Saving inventory item' });
+                state.stockData = reconcileStockAgencies(state.stockData);
+                const saved = await persistStock({ loadingText: 'Saving purchases...', errorTitle: 'Saving purchase item' });
                 if (!saved) return;
                 renderStockTable();
+                renderAgencyOverview();
                 renderDashboard();
                 renderProductPicker();
                 closeModal('inventory-modal');
-                showToast('Inventory item saved.', 'success');
+                showToast('Purchase item saved.', 'success');
             });
         });
         document.getElementById('save-json-stock-modal-btn')?.addEventListener('click', () => {
             const raw = document.getElementById('stock-json-modal-input').value.trim();
-            if (!raw) return openNotice('Import inventory', 'Paste a JSON array first.');
-            confirmAction('Import inventory', 'Import inventory items from the pasted JSON?', importInventoryJson);
+            if (!raw) return openNotice('Import purchases', 'Paste a JSON array first.');
+            confirmAction('Import purchases', 'Import purchase items from the pasted JSON?', importInventoryJson);
         });
         document.getElementById('inventory-search')?.addEventListener('input', renderStockTable);
     }
@@ -1033,6 +1614,14 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Medicine order deleted.', 'success');
     }
 
+    async function deleteAgencyOrder(id) {
+        state.agencyOrderData = state.agencyOrderData.filter(item => item.id !== id);
+        const saved = await persistCloudState({ loadingText: 'Deleting agency order...', errorTitle: 'Deleting agency order' });
+        if (!saved) return;
+        renderAgencyOverview();
+        showToast('Agency order deleted.', 'success');
+    }
+
     function renderOrders() {
         const tbody = document.getElementById('orders-table-body');
         if (!tbody) return;
@@ -1181,7 +1770,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast('Settings saved.', 'success');
             });
         });
-        document.getElementById('open-reset-data-modal')?.addEventListener('click', () => confirmAction('Reset data', 'Clear invoices, inventory, medicine orders, and pharmacy profile from Supabase?', resetDemoData));
+        document.getElementById('open-reset-data-modal')?.addEventListener('click', () => confirmAction('Reset data', 'Clear invoices, purchases, agencies, agency order history, medicine orders, and pharmacy profile from Supabase?', resetDemoData));
     }
     function bindModals() {
         document.querySelectorAll('[data-close-modal]').forEach(btn => btn.addEventListener('click', () => closeModal(btn.dataset.closeModal)));
@@ -1190,11 +1779,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (event.target === modal) closeModal(modal.id);
             });
         });
-        document.getElementById('confirm-action-btn')?.addEventListener('click', () => {
+        document.getElementById('confirm-action-btn')?.addEventListener('click', async () => {
             const handler = confirmHandler;
             confirmHandler = null;
-            if (handler) handler();
-            closeModal('confirm-modal');
+            try {
+                if (handler) await handler();
+            } catch (error) {
+                console.error('Confirmed action failed.', error);
+                showToast('That action could not be completed. Please try again.', 'error');
+            } finally {
+                closeModal('confirm-modal');
+            }
         });
     }
 
@@ -1228,7 +1823,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleItemInput(event, tr) {
         const search = event.target.value.toLowerCase().trim();
         if (!search) return;
-        const match = state.stockData.find(stock => (stock.item || '').toLowerCase().includes(search));
+        const matches = state.stockData.filter(stock => (stock.item || '').toLowerCase().includes(search));
+        const exactMatches = matches.filter(stock => (stock.item || '').toLowerCase() === search);
+        const candidates = exactMatches.length ? exactMatches : matches;
+        if (candidates.length !== 1) return;
+        const match = candidates[0];
         if (!match) return;
         tr.querySelector('.item-input').value = match.item || '';
         tr.querySelector('.sch-input').value = match.sch || '';
@@ -1574,19 +2173,20 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderStockTable() {
         const tbody = document.getElementById('stock-inventory-body');
         const search = document.getElementById('inventory-search')?.value.trim().toLowerCase() || '';
-        const header = document.querySelector('#view-inventory table thead tr');
-        if (header && header.children.length < 8) header.insertAdjacentHTML('beforeend', '<th>Actions</th>');
         tbody.innerHTML = '';
         state.stockData.filter(item => {
-            const haystack = `${item.item} ${item.mfg} ${item.batch} ${item.shelf || ''}`.toLowerCase();
+            const agencyName = getAgencyName(item.agencyId, item.agencyName);
+            const haystack = `${item.item} ${agencyName} ${item.sch} ${item.mfg} ${item.batch} ${item.shelf || ''}`.toLowerCase();
             return !search || haystack.includes(search);
         }).forEach(item => {
             const qty = Number(item.stock || 0);
             const status = qty <= 10 ? 'Low stock' : 'Healthy';
             const packLabel = getPackLabel(item);
+            const agencyName = getAgencyName(item.agencyId, item.agencyName);
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${escapeHtml(item.item)}</td>
+                <td>${escapeHtml(agencyName || '-')}</td>
                 <td>${escapeHtml(item.sch || '')}</td>
                 <td>${escapeHtml(item.mfg || '')}</td>
                 <td>${escapeHtml(item.batch || '')}</td>
@@ -1598,18 +2198,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td class="table-actions"><button class="btn secondary btn-sm js-stock-edit" data-id="${item.id}"><i class="fa-solid fa-pen"></i></button><button class="btn danger-solid btn-sm js-stock-delete" data-id="${item.id}"><i class="fa-solid fa-trash"></i></button></td>`;
             tbody.appendChild(tr);
         });
-        if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="10" class="empty-state-cell">No inventory items found.</td></tr>';
+        if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="11" class="empty-state-cell">No purchase items found.</td></tr>';
         tbody.querySelectorAll('.js-stock-edit').forEach(btn => btn.addEventListener('click', () => openInventoryModal(btn.dataset.id)));
-        tbody.querySelectorAll('.js-stock-delete').forEach(btn => btn.addEventListener('click', () => confirmAction('Delete inventory item', 'Remove this item from stock?', () => deleteStockItem(btn.dataset.id))));
+        tbody.querySelectorAll('.js-stock-delete').forEach(btn => btn.addEventListener('click', () => confirmAction('Delete purchase item', 'Remove this purchase item from stock?', () => deleteStockItem(btn.dataset.id))));
     }
 
     function openInventoryModal(id = null) {
-        const item = state.stockData.find(stock => stock.id === id) || { id: '', item: '', category: '', sch: '', mfg: '', batch: '', expiry: '', shelf: '', stock: 0, unitsPerSheet: 0, sheetPrice: 0, price: 0 };
-        document.getElementById('inventory-modal-title').textContent = id ? 'Edit Inventory Item' : 'Add Inventory Item';
+        const item = state.stockData.find(stock => stock.id === id) || { id: '', item: '', category: '', sch: 'OTC', agencyId: '', agencyName: '', mfg: '', batch: '', expiry: '', shelf: '', stock: 0, unitsPerSheet: 0, sheetPrice: 0, price: 0 };
+        document.getElementById('inventory-modal-title').textContent = id ? 'Edit Purchase Item' : 'Add Purchase Item';
         document.getElementById('inventory-id').value = item.id || '';
         document.getElementById('inventory-item').value = item.item || '';
         document.getElementById('inventory-category').value = item.category || '';
-        document.getElementById('inventory-sch').value = item.sch || '';
+        populateAgencyOptions(item.agencyId || '', item.agencyName || '');
+        populateScheduleOptions('inventory-sch', item.sch || 'OTC');
         document.getElementById('inventory-mfg').value = item.mfg || '';
         document.getElementById('inventory-batch').value = item.batch || '';
         document.getElementById('inventory-expiry').value = item.expiry || '';
@@ -1618,39 +2219,54 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('inventory-units-per-sheet').value = item.unitsPerSheet || '';
         document.getElementById('inventory-sheet-price').value = item.sheetPrice || '';
         document.getElementById('inventory-price').value = item.price || 0;
+        if (!state.agencyData.length && !id) {
+            showToast('Add an agency first, then save the purchase item.', 'info');
+        }
         openModal('inventory-modal');
     }
 
     async function deleteStockItem(id) {
         state.stockData = state.stockData.filter(item => item.id !== id);
-        const saved = await persistStock({ loadingText: 'Deleting inventory item...', errorTitle: 'Deleting inventory item' });
+        const saved = await persistStock({ loadingText: 'Deleting purchase item...', errorTitle: 'Deleting purchase item' });
         if (!saved) return;
         renderStockTable();
+        renderAgencyOverview();
         renderDashboard();
         renderProductPicker();
-        showToast('Inventory item deleted.', 'success');
+        showToast('Purchase item deleted.', 'success');
     }
 
     async function importInventoryJson() {
         const raw = document.getElementById('stock-json-modal-input').value.trim();
-        if (!raw) return openNotice('Import inventory', 'Paste a JSON array first.');
+        if (!raw) return openNotice('Import purchases', 'Paste a JSON array first.');
         try {
             const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) return openNotice('Import inventory', 'JSON must be an array.');
+            if (!Array.isArray(parsed)) return openNotice('Import purchases', 'JSON must be an array.');
             parsed.forEach(entry => {
                 const stockItem = normalizeStock([entry])[0];
+                if (stockItem.agencyName && !stockItem.agencyId) {
+                    const matchedAgency = state.agencyData.find(item => item.name.toLowerCase() === stockItem.agencyName.toLowerCase());
+                    if (matchedAgency) stockItem.agencyId = matchedAgency.id;
+                }
                 const index = state.stockData.findIndex(item => item.id === stockItem.id || item.item.toLowerCase() === stockItem.item.toLowerCase());
                 if (index >= 0) state.stockData[index] = stockItem; else state.stockData.push(stockItem);
             });
-            const saved = await persistStock({ loadingText: 'Importing inventory...', errorTitle: 'Importing inventory' });
+            state.agencyData = normalizeAgencies([
+                ...state.agencyData,
+                ...state.stockData.filter(item => item.agencyName).map(item => ({ id: item.agencyId, name: item.agencyName }))
+            ]);
+            state.stockData = reconcileStockAgencies(state.stockData);
+            const saved = await persistStock({ loadingText: 'Importing purchases...', errorTitle: 'Importing purchases' });
             if (!saved) return;
             renderStockTable();
+            renderAgencyOverview();
             renderDashboard();
             renderProductPicker();
+            renderAgencyList();
             closeModal('inventory-import-modal');
-            showToast('Inventory JSON imported.', 'success');
+            showToast('Purchases JSON imported.', 'success');
         } catch (error) {
-            openNotice('Import inventory', 'Invalid JSON format.');
+            openNotice('Import purchases', 'Invalid JSON format.');
         }
     }
     function renderProductPicker() {
@@ -1658,12 +2274,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const list = document.getElementById('product-picker-list');
         if (!list) return;
         list.innerHTML = '';
-        state.stockData.filter(item => !search || item.item.toLowerCase().includes(search)).forEach(item => {
+        state.stockData.filter(item => {
+            const agencyName = getAgencyName(item.agencyId, item.agencyName);
+            const haystack = `${item.item} ${agencyName} ${item.mfg} ${item.batch}`.toLowerCase();
+            return !search || haystack.includes(search);
+        }).forEach(item => {
             const packLabel = getPackLabel(item);
             const shelfLabel = item.shelf ? ` | Shelf ${escapeHtml(item.shelf)}` : '';
-            list.insertAdjacentHTML('beforeend', `<button class="picker-item" data-id="${item.id}"><span><strong>${escapeHtml(item.item)}</strong><em>${escapeHtml(item.mfg || 'No MFG')} | ${escapeHtml(item.batch || 'No batch')}${shelfLabel}${packLabel ? ` | ${escapeHtml(packLabel)}` : ''}</em></span><span>Rs ${Number(item.price || 0).toFixed(2)}${packLabel ? '/tab' : ''}</span></button>`);
+            const agencyLabel = getAgencyName(item.agencyId, item.agencyName) || 'No agency';
+            list.insertAdjacentHTML('beforeend', `<button class="picker-item" data-id="${item.id}"><span><strong>${escapeHtml(item.item)}</strong><em>${escapeHtml(agencyLabel)} | ${escapeHtml(item.mfg || 'No MFG')} | ${escapeHtml(item.batch || 'No batch')}${shelfLabel}${packLabel ? ` | ${escapeHtml(packLabel)}` : ''}</em></span><span>Rs ${Number(item.price || 0).toFixed(2)}${packLabel ? '/tab' : ''}</span></button>`);
         });
-        if (!list.children.length) list.innerHTML = '<div class="activity-item empty">No matching inventory item.</div>';
+        if (!list.children.length) list.innerHTML = '<div class="activity-item empty">No matching purchase item.</div>';
         list.querySelectorAll('.picker-item').forEach(btn => btn.addEventListener('click', () => {
             const item = state.stockData.find(stock => stock.id === btn.dataset.id);
             if (!item) return;
@@ -1707,14 +2328,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function persistStock(options = {}) {
         return persistCloudState({
-            loadingText: 'Saving inventory...',
-            errorTitle: 'Saving inventory',
+            loadingText: 'Saving purchases...',
+            errorTitle: 'Saving purchases',
             ...options
         });
     }
 
     async function resetDemoData() {
         state.stockData = [];
+        state.agencyData = [];
+        state.agencyOrderData = [];
         state.invoiceData = [];
         state.orderData = [];
         state.pharmacyDetails = normalizeSettings(null);
@@ -1725,9 +2348,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderInvoiceTable();
         renderOrders();
         renderPharmacyDetails();
+        renderAgencyOverview();
         renderDashboard();
         renderReports();
         renderProductPicker();
+        renderAgencyList();
         resetBillingForm();
         showToast('Supabase data reset.', 'success');
     }
@@ -1899,19 +2524,53 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal('notice-modal');
     }
 
+    function getActiveModalId(excludedIds = []) {
+        const activeModals = [...document.querySelectorAll('.modal-shell.active')]
+            .map(modal => modal.id)
+            .filter(id => !excludedIds.includes(id));
+        return activeModals[activeModals.length - 1] || null;
+    }
+
     function confirmAction(title, message, callback) {
+        const activeModalId = getActiveModalId(['confirm-modal', 'notice-modal']);
         confirmHandler = callback;
+        confirmRestoreModalId = activeModalId;
+        confirmSourceModalClosedByAction = false;
+        if (activeModalId) {
+            document.getElementById(activeModalId)?.classList.remove('active');
+        }
         document.getElementById('confirm-title').textContent = title;
         document.getElementById('confirm-message').textContent = message;
         openModal('confirm-modal');
     }
 
     function openModal(id) {
-        document.getElementById(id)?.classList.add('active');
+        const modal = document.getElementById(id);
+        if (!modal) return;
+        modalZIndexCounter += 2;
+        modal.style.zIndex = String(modalZIndexCounter);
+        if (modal.parentElement === document.body) {
+            document.body.appendChild(modal);
+        }
+        modal.classList.add('active');
     }
 
     function closeModal(id) {
-        document.getElementById(id)?.classList.remove('active');
+        const modal = document.getElementById(id);
+        if (!modal) return;
+        modal.classList.remove('active');
+
+        if (id !== 'confirm-modal' && id === confirmRestoreModalId && document.getElementById('confirm-modal')?.classList.contains('active')) {
+            confirmSourceModalClosedByAction = true;
+        }
+
+        if (id === 'confirm-modal') {
+            const restoreModalId = !confirmSourceModalClosedByAction ? confirmRestoreModalId : null;
+            confirmHandler = null;
+            confirmRestoreModalId = null;
+            confirmSourceModalClosedByAction = false;
+            if (restoreModalId) openModal(restoreModalId);
+        }
     }
 
     function registerServiceWorker() {
@@ -1926,12 +2585,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function normalizeStock(items) {
         return (items || []).map(item => ({
             id: item.id || `stk_${String(item.item || Math.random()).replace(/\W+/g, '').toLowerCase()}`,
-            item: item.item || '',
-            category: item.category || '',
-            sch: item.sch || '',
-            mfg: item.mfg || '',
-            batch: item.batch || '',
-            expiry: item.expiry || '',
+            item: normalizeTextValue(item.item),
+            category: normalizeTextValue(item.category),
+            sch: normalizeMedicineSchedule(item.sch || item.schedule),
+            agencyId: normalizeTextValue(item.agencyId),
+            agencyName: normalizeTextValue(item.agencyName || item.agency || item.supplier || item.vendor),
+            mfg: normalizeTextValue(item.mfg),
+            batch: normalizeTextValue(item.batch),
+            expiry: normalizeTextValue(item.expiry),
             shelf: item.shelf || item.location || item.rack || '',
             stock: Number(item.stock || 0),
             unitsPerSheet: Number(item.unitsPerSheet || item.sheetQty || item.tabsPerSheet || 0),
@@ -1942,6 +2603,85 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.price || 0
             )
         }));
+    }
+
+    function normalizeAgencies(items) {
+        const seen = new Set();
+        return (items || [])
+            .map(item => {
+                const name = normalizeTextValue(item?.name || item?.agencyName || item?.agency || item?.supplier || item?.vendor);
+                if (!name) return null;
+                const key = name.toLowerCase();
+                if (seen.has(key)) return null;
+                seen.add(key);
+                return {
+                    id: normalizeTextValue(item?.id) || `agy_${Date.now()}_${seen.size}`,
+                    name,
+                    contactName: normalizeTextValue(item?.contactName || item?.contact),
+                    phone: normalizeTextValue(item?.phone || item?.mobile),
+                    address: normalizeTextValue(item?.address),
+                    notes: normalizeTextValue(item?.notes),
+                    createdAt: item?.createdAt || new Date().toISOString()
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    function normalizeAgencyOrderStatus(value) {
+        return AGENCY_ORDER_STATUS_OPTIONS.includes(value) ? value : 'Draft';
+    }
+
+    function normalizeAgencyOrders(items) {
+        return (items || []).map(item => ({
+            id: item?.id || `aord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            agencyId: normalizeTextValue(item?.agencyId),
+            agencyName: normalizeTextValue(item?.agencyName || item?.agency),
+            status: normalizeAgencyOrderStatus(item?.status),
+            orderDate: item?.orderDate || getTodayDateString(),
+            expectedDate: item?.expectedDate || '',
+            itemSummary: normalizeTextValue(item?.itemSummary || item?.items || item?.summary),
+            invoiceRef: normalizeTextValue(item?.invoiceRef || item?.reference),
+            totalAmount: roundCurrency(item?.totalAmount || item?.amount || 0),
+            paidAmount: roundCurrency(item?.paidAmount || item?.paid || 0),
+            notes: normalizeTextValue(item?.notes),
+            createdAt: item?.createdAt || new Date().toISOString()
+        }));
+    }
+
+    function reconcileAgencyOrders(items, agencies = state.agencyData) {
+        return (items || []).map(item => {
+            const normalizedName = normalizeTextValue(item.agencyName);
+            const match = agencies.find(agency =>
+                (item.agencyId && agency.id === item.agencyId)
+                || (normalizedName && agency.name.toLowerCase() === normalizedName.toLowerCase())
+            );
+            return {
+                ...item,
+                agencyId: match?.id || item.agencyId || '',
+                agencyName: match?.name || normalizedName
+            };
+        });
+    }
+
+    function reconcileStockAgencies(items, agencies = state.agencyData) {
+        return (items || []).map(item => {
+            const normalizedName = normalizeTextValue(item.agencyName);
+            const match = agencies.find(agency =>
+                (item.agencyId && agency.id === item.agencyId)
+                || (normalizedName && agency.name.toLowerCase() === normalizedName.toLowerCase())
+            );
+            return {
+                ...item,
+                agencyId: match?.id || item.agencyId || '',
+                agencyName: match?.name || normalizedName
+            };
+        });
+    }
+
+    function getAgencyName(agencyId, fallbackName = '') {
+        const match = state.agencyData.find(item => item.id === agencyId);
+        return match?.name || normalizeTextValue(fallbackName);
     }
 
     function normalizeInvoices(items) {
