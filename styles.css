@@ -657,6 +657,10 @@ button { border: 0; cursor: pointer; }
     overscroll-behavior: contain;
 }
 .modal-shell.active { display: flex; animation: fadeIn 0.2s ease-out forwards; }
+#confirm-modal,
+#notice-modal {
+    z-index: 1200;
+}
 .modal-card {
     width: min(500px, 100%);
     max-height: calc(100vh - 3rem);
@@ -715,6 +719,17 @@ button { border: 0; cursor: pointer; }
 .activity-item strong { color: var(--heading); }
 .activity-item span { color: var(--text-muted); font-size: 0.9rem;}
 .activity-item em { font-style: normal; font-weight: 700; color: var(--primary); }
+.activity-item > div:first-child { display: grid; gap: 0.2rem; }
+
+.supplier-section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.supplier-overview-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
 
 /* Reports */
 .reports-filters { display: grid; gap: 1rem; }
