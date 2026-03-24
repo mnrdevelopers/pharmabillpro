@@ -1,11 +1,11 @@
-const APP_CACHE = "pharmabill-app-v1.2";
-const RUNTIME_CACHE = "pharmabill-runtime-v1.2";
+const APP_CACHE = "pharmabill-app-v4";
+const RUNTIME_CACHE = "pharmabill-runtime-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./script.js",
-  "./manifest.webmanifest",
+  "./styles.css?v=20260324-3",
+  "./script.js?v=20260324-3",
+  "./manifest.webmanifest?v=20260324-3",
   "./offline.html",
   "./icons/app-icon.svg",
   "./icons/app-maskable.svg",
